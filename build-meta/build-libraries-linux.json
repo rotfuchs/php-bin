@@ -10,6 +10,7 @@
     "libxml2",
     "curl",
     "onig",
+    "unixodbc",
     "sqlite",
     "libzip"
 ]
