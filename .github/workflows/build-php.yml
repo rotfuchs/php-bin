@@ -175,10 +175,13 @@ jobs:
           SPC_TARGET: aarch64-linux-gnu.2.17
         run: |
           cd ../static-php-cli
+          # Install composer dependencies (required for bin/spc PHP script)
+          composer install --no-dev --no-interaction
           # Install zig for cross-compilation
           curl -fsSL https://ziglang.org/download/0.13.0/zig-linux-aarch64-0.13.0.tar.xz | tar -xJ
           export PATH="$PWD/zig-linux-aarch64-0.13.0:$PATH"
           chmod +x bin/spc
+          bin/spc doctor --auto-fix
           bin/spc download --with-php=${{ matrix.version }} --for-extensions "${{ env.PHP_EXTENSIONS }}" --prefer-pre-built --retry=3
           bin/spc build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug --build-type=zig
           cd ../php-bin
