@@ -169,6 +169,7 @@ jobs:
           cd ../php-bin
 
       # Linux ARM64: Use zig compiler with gnu target for glibc build
+      # SPC_TARGET tells static-php-cli to use zig and target glibc 2.17
       - name: Build PHP (Linux ARM64 with glibc via zig)
         if: matrix.os == 'ubuntu-24.04-arm'
         env:
@@ -177,13 +178,13 @@ jobs:
           cd ../static-php-cli
           # Install composer dependencies (required for bin/spc PHP script)
           composer install --no-dev --no-interaction
-          # Install zig for cross-compilation
+          # Install zig (required when SPC_TARGET specifies a gnu target)
           curl -fsSL https://ziglang.org/download/0.13.0/zig-linux-aarch64-0.13.0.tar.xz | tar -xJ
           export PATH="$PWD/zig-linux-aarch64-0.13.0:$PATH"
           chmod +x bin/spc
           bin/spc doctor --auto-fix
           bin/spc download --with-php=${{ matrix.version }} --for-extensions "${{ env.PHP_EXTENSIONS }}" --prefer-pre-built --retry=3
-          bin/spc build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug --build-type=zig
+          bin/spc build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug
           cd ../php-bin
 
       - name: Build PHP (macOS)
