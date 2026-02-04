@@ -114,6 +114,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'
         run: echo "SPC_BUILD_OS=linux" >> $GITHUB_ENV
 
+      - shell: bash
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'
+        run: |
+          echo "SPC_BUILD_TYPE=gnu" >> $GITHUB_ENV
+          echo "SPC_BUILD_EXTRA_ARGS=--build-type=gnu" >> $GITHUB_ENV
+
       - name: Setup system PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -161,7 +167,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           cd ../static-php-cli
-          ./bin/${{ env.SPC_BINARY }} build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug
+          ./bin/${{ env.SPC_BINARY }} build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug ${{ env.SPC_BUILD_EXTRA_ARGS }}
           cd ../php-bin
 
       - name: Build PHP (Windows with custom icon)
