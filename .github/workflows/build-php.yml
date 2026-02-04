@@ -50,16 +50,6 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: echo "SPC_URL=https://github.com/crazywhalecc/static-php-cli/releases/download/${{ env.SPC_VERSION }}/spc-macos-aarch64.tar.gz" >> $GITHUB_ENV
 
-      - name: Set SPC URL for ubuntu-latest and ubuntu-24.04
-        shell: bash
-        if: matrix.os == 'ubuntu-latest'
-        run: echo "SPC_URL=https://github.com/crazywhalecc/static-php-cli/releases/download/${{ env.SPC_VERSION }}/spc-linux-x86_64.tar.gz" >> $GITHUB_ENV
-
-      - name: Set SPC URL for ubuntu-24.04-arm
-        shell: bash
-        if: matrix.os == 'ubuntu-24.04-arm'
-        run: echo "SPC_URL=https://github.com/crazywhalecc/static-php-cli/releases/download/${{ env.SPC_VERSION }}/spc-linux-aarch64.tar.gz" >> $GITHUB_ENV
-
       - name: Set SPC URL for windows-latest
         shell: bash
         if: matrix.os == 'windows-latest'
@@ -67,8 +57,10 @@ jobs:
           echo "SPC_URL=https://github.com/crazywhalecc/static-php-cli/releases/download/${{ env.SPC_VERSION }}/spc-windows-x64.exe" >> $GITHUB_ENV
           echo "SPC_BINARY=spc.exe" >> $GITHUB_ENV
 
-      - name: Download SPC
+      # For non-Linux: Download pre-built SPC binary
+      - name: Download SPC (non-Linux)
         shell: bash
+        if: "!contains(matrix.os, 'ubuntu')"
         run: |
           cd ..
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -80,6 +72,13 @@ jobs:
           chmod +x ${{ env.SPC_BINARY }}
           [ ! -d static-php-cli/bin ] && mkdir -p static-php-cli/bin
           mv ${{ env.SPC_BINARY }} static-php-cli/bin/
+
+      # For Linux: Clone full repository (required for spc-gnu-docker)
+      - name: Clone static-php-cli repository (Linux)
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          cd ..
+          git clone --depth 1 --branch ${{ env.SPC_VERSION }} https://github.com/crazywhalecc/static-php-cli.git
 
       - name: Create php-bin directory
         shell: bash
@@ -114,12 +113,6 @@ jobs:
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'
         run: echo "SPC_BUILD_OS=linux" >> $GITHUB_ENV
 
-      - shell: bash
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'
-        run: |
-          echo "SPC_BUILD_TYPE=gnu" >> $GITHUB_ENV
-          echo "SPC_BUILD_EXTRA_ARGS=--build-type=gnu" >> $GITHUB_ENV
-
       - name: Setup system PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -128,7 +121,8 @@ jobs:
           extensions: curl, openssl, mbstring, sodium, tokenizer
           ini-values: memory_limit=-1
 
-      - name: SPC doctor
+      - name: SPC doctor (non-Linux)
+        if: "!contains(matrix.os, 'ubuntu')"
         run: |
           cd ../static-php-cli
           ./bin/${{ env.SPC_BINARY }} doctor
@@ -143,15 +137,16 @@ jobs:
           echo "PHP_EXTENSIONS=$EXTENSIONS" >> $GITHUB_ENV
           echo "PHP_EXT_HASH=$EXT_HASH" >> $GITHUB_ENV
 
-      # Cache downloaded source
+      # Cache downloaded source (non-Linux only, Linux uses Docker which handles its own caching)
       - id: cache-spc-downloads
+        if: "!contains(matrix.os, 'ubuntu')"
         uses: actions/cache@v4
         with:
           path: ../static-php-cli/downloads
           key: spc-downloads-${{ env.PHP_EXT_HASH }}
 
-      - name: Download PHP extension sources
-        if: steps.cache-spc-downloads.outputs.cache-hit != 'true'
+      - name: Download PHP extension sources (non-Linux)
+        if: "!contains(matrix.os, 'ubuntu') && steps.cache-spc-downloads.outputs.cache-hit != 'true'"
         run: |
           cd ../static-php-cli
           ./bin/${{ env.SPC_BINARY }} download --with-php=${{ matrix.version }} --for-extensions "${{ env.PHP_EXTENSIONS }}" --prefer-pre-built --retry=3
@@ -163,11 +158,36 @@ jobs:
         run: |
           cp assets/icon.ico ../static-php-cli/
 
-      - name: Build PHP (non-Windows)
-        if: matrix.os != 'windows-latest'
+      # Linux x86_64: Use spc-gnu-docker for glibc build (required for loading external .so like ODBC drivers)
+      - name: Build PHP (Linux x86_64 with glibc via Docker)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           cd ../static-php-cli
-          ./bin/${{ env.SPC_BINARY }} build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug ${{ env.SPC_BUILD_EXTRA_ARGS }}
+          chmod +x bin/spc-gnu-docker
+          bin/spc-gnu-docker download --with-php=${{ matrix.version }} --for-extensions "${{ env.PHP_EXTENSIONS }}" --prefer-pre-built --retry=3
+          bin/spc-gnu-docker build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug
+          cd ../php-bin
+
+      # Linux ARM64: Use zig compiler with gnu target for glibc build
+      - name: Build PHP (Linux ARM64 with glibc via zig)
+        if: matrix.os == 'ubuntu-24.04-arm'
+        env:
+          SPC_TARGET: aarch64-linux-gnu.2.17
+        run: |
+          cd ../static-php-cli
+          # Install zig for cross-compilation
+          curl -fsSL https://ziglang.org/download/0.13.0/zig-linux-aarch64-0.13.0.tar.xz | tar -xJ
+          export PATH="$PWD/zig-linux-aarch64-0.13.0:$PATH"
+          chmod +x bin/spc
+          bin/spc download --with-php=${{ matrix.version }} --for-extensions "${{ env.PHP_EXTENSIONS }}" --prefer-pre-built --retry=3
+          bin/spc build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug --build-type=zig
+          cd ../php-bin
+
+      - name: Build PHP (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          cd ../static-php-cli
+          ./bin/${{ env.SPC_BINARY }} build --build-micro "${{ env.PHP_EXTENSIONS }}" --debug
           cd ../php-bin
 
       - name: Build PHP (Windows with custom icon)
@@ -181,7 +201,11 @@ jobs:
         shell: bash
         run: |
           cd ../static-php-cli
-          PHP_VERSION_FULL=$(./bin/${{ env.SPC_BINARY }} dev:php-version)
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            PHP_VERSION_FULL=$(bin/spc-gnu-docker dev:php-version)
+          else
+            PHP_VERSION_FULL=$(./bin/${{ env.SPC_BINARY }} dev:php-version)
+          fi
           echo "PHP_VERSION_FULL=$PHP_VERSION_FULL" >> $GITHUB_ENV
           cd ../php-bin
 
