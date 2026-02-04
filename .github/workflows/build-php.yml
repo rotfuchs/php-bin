@@ -116,7 +116,7 @@ jobs:
       - name: Setup system PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: 8.2
+          php-version: 8.4
           tools: pecl, composer
           extensions: curl, openssl, mbstring, sodium, tokenizer
           ini-values: memory_limit=-1
